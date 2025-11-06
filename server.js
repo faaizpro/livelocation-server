@@ -1,32 +1,34 @@
-const WebSocket = require("ws");
+const WebSocket = require('ws');
 const PORT = process.env.PORT || 10000;
-const server = new WebSocket.Server({ port: PORT });
+const wss = new WebSocket.Server({ port: PORT });
+let clients = {}; // store latest user info by id
 
-console.log("✅ Live Location Server started on port", PORT);
-
-let clients = {};
-
-server.on("connection", (ws) => {
-  ws.on("message", (msg) => {
+wss.on('connection', ws => {
+  ws.on('message', msg => {
     try {
       const data = JSON.parse(msg);
-      if (data.type === "update") {
+      if (data.type === 'update') {
         clients[data.id] = {
           id: data.id,
           name: data.name,
+          phone: data.phone,
           device: data.device,
           lat: data.lat,
           lon: data.lon,
-          lastUpdate: Date.now()
+          ts: Date.now()
         };
       }
-      // Send all user data to everyone
-      const all = JSON.stringify({ type: "all", users: Object.values(clients) });
-      for (const client of server.clients) {
-        if (client.readyState === WebSocket.OPEN) client.send(all);
-      }
+      // broadcast snapshot of all users
+      const all = JSON.stringify({ type: 'all', users: Object.values(clients) });
+      wss.clients.forEach(c => {
+        if (c.readyState === WebSocket.OPEN) c.send(all);
+      });
     } catch (e) {
-      console.log("❌ Invalid message", e);
+      console.error('invalid message', e);
     }
   });
+
+  ws.on('close', () => {});
 });
+
+console.log('WebSocket server listening on', PORT);
