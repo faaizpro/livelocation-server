@@ -1,7 +1,6 @@
 {
   "name": "livelocation-server",
   "version": "1.0.0",
-  "description": "Live location WebSocket server",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
@@ -16,6 +15,5 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "license": "MIT"
+  }
 }
