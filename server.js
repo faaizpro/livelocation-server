@@ -1,40 +1,52 @@
-// server.js
 const WebSocket = require("ws");
-const PORT = process.env.PORT || 8000;
+
+const PORT = process.env.PORT || 10000;
 const wss = new WebSocket.Server({ port: PORT });
 
-let users = new Map(); // key: userId, value: { lat, lon }
+// Store connected clients and their last locations
+let clients = new Map();
 
 wss.on("connection", (ws) => {
-  console.log("✅ New client connected");
+  console.log("✅ Client connected");
 
-  // Send initial list of users
-  ws.send(JSON.stringify({ type: "all", users: [...users.entries()].map(([id, u]) => ({ id, ...u })) }));
+  // Assign random id for this connection
+  const id = Math.random().toString(36).substr(2, 9);
+  clients.set(ws, { id, lat: null, lon: null });
 
-  ws.on("message", (message) => {
+  ws.on("message", (msg) => {
     try {
-      const data = JSON.parse(message);
+      const data = JSON.parse(msg);
       if (data.lat && data.lon) {
-        // Create ID if not provided
-        if (!data.id) data.id = Math.random().toString(36).substring(2, 10);
-        users.set(data.id, { lat: data.lat, lon: data.lon });
-
-        // Broadcast to all clients
-        const allUsers = [...users.entries()].map(([id, u]) => ({ id, ...u }));
-        wss.clients.forEach((client) => {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify({ type: "all", users: allUsers }));
-          }
-        });
+        clients.set(ws, { id, lat: data.lat, lon: data.lon });
+        broadcastAll();
       }
-    } catch (err) {
-      console.error("Error parsing message:", err);
+    } catch (e) {
+      console.error("Invalid JSON:", e);
     }
   });
 
   ws.on("close", () => {
     console.log("❌ Client disconnected");
+    clients.delete(ws);
+    broadcastAll();
   });
 });
 
-console.log(`🌐 WebSocket server running on port ${PORT}`);
+function broadcastAll() {
+  const allUsers = [];
+  for (const [_, user] of clients.entries()) {
+    if (user.lat !== null && user.lon !== null) {
+      allUsers.push(user);
+    }
+  }
+
+  const message = JSON.stringify({ type: "all", users: allUsers });
+
+  for (const client of clients.keys()) {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  }
+}
+
+console.log("🌍 Live location WebSocket server running on port", PORT);
