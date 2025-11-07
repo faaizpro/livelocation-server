@@ -7,13 +7,18 @@ const wss = new WebSocket.Server({ port: PORT });
 let clients = {};
 const CLIENT_TIMEOUT = 30000; // 30 seconds
 
+console.log('WebSocket server listening on port', PORT);
+
 wss.on('connection', ws => {
   console.log('New client connected');
+
+  // Set up heartbeat
+  ws.isAlive = true;
+  ws.on('pong', () => ws.isAlive = true);
 
   ws.on('message', msg => {
     try {
       const data = JSON.parse(msg);
-
       if (data.type === 'update' && data.id && data.lat && data.lon) {
         clients[data.id] = {
           ws,
@@ -35,24 +40,23 @@ wss.on('connection', ws => {
 
   ws.on('close', () => {
     console.log('Client disconnected');
-    // Remove disconnected clients
-    for (const id in clients) {
-      if (clients[id].ws === ws) {
-        delete clients[id];
-        break;
-      }
-    }
+    removeClient(ws);
+    broadcastClients();
+  });
+
+  ws.on('error', () => {
+    removeClient(ws);
     broadcastClients();
   });
 });
 
-// Broadcast active clients to all connected clients
+// Broadcast active clients
 function broadcastClients() {
   const now = Date.now();
 
-  // Remove clients with timeout
+  // Remove clients that timed out
   for (const id in clients) {
-    if (now - clients[id].ts > CLIENT_TIMEOUT) {
+    if (now - clients[id].ts > CLIENT_TIMEOUT || clients[id].ws.readyState !== WebSocket.OPEN) {
       delete clients[id];
     }
   }
@@ -75,4 +79,20 @@ function broadcastClients() {
   });
 }
 
-console.log('WebSocket server listening on port', PORT);
+function removeClient(ws) {
+  for (const id in clients) {
+    if (clients[id].ws === ws) {
+      delete clients[id];
+      break;
+    }
+  }
+}
+
+// Heartbeat ping to detect dead connections
+const interval = setInterval(() => {
+  wss.clients.forEach(ws => {
+    if (!ws.isAlive) return ws.terminate();
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 10000);
