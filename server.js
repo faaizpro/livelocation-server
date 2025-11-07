@@ -1,97 +1,61 @@
-const WebSocket = require('ws');
+const WebSocket = require("ws");
 
+// ✅ Server setup
 const PORT = process.env.PORT || 10000;
 const wss = new WebSocket.Server({ port: PORT });
 
-let clients = {};
-const CLIENT_TIMEOUT = 30000; // 30 seconds
+console.log(`✅ Live Location WebSocket Server running on port ${PORT}`);
 
-console.log('WebSocket server listening on port', PORT);
+// Store clients with location data
+let clients = new Map(); // ws → { lat, lon, ts }
+const CLIENT_TIMEOUT = 30000; // remove client if no update in 30s
 
-wss.on('connection', ws => {
-  console.log('New client connected');
+// ✅ Handle new connections
+wss.on("connection", (ws) => {
+  console.log("🟢 Client connected");
 
-  // Heartbeat
-  ws.isAlive = true;
-  ws.on('pong', () => ws.isAlive = true);
-
-  ws.on('message', msg => {
+  // When a client sends a message
+  ws.on("message", (msg) => {
     try {
       const data = JSON.parse(msg);
 
-      if (data.type === 'update' && data.id && data.lat && data.lon) {
-        clients[data.id] = {
-          ws,
-          id: data.id,
-          name: data.name || '',
-          phone: data.phone || '',
-          device: data.device || '',
-          lat: data.lat,
-          lon: data.lon,
-          ts: Date.now()
-        };
+      if (typeof data.lat === "number" && typeof data.lon === "number") {
+        // Save latest location
+        clients.set(ws, { lat: data.lat, lon: data.lon, ts: Date.now() });
       }
 
-      broadcastClients();
+      broadcastAll();
     } catch (e) {
-      console.error('Invalid message received:', e);
+      console.error("❌ Invalid message:", e.message);
     }
   });
 
-  ws.on('close', () => {
-    removeClient(ws);
-    broadcastClients();
-  });
-
-  ws.on('error', () => {
-    removeClient(ws);
-    broadcastClients();
+  // On close → remove client
+  ws.on("close", () => {
+    console.log("🔴 Client disconnected");
+    clients.delete(ws);
+    broadcastAll();
   });
 });
 
-// Remove client helper
-function removeClient(ws) {
-  for (const id in clients) {
-    if (clients[id].ws === ws) {
-      delete clients[id];
-      break;
-    }
-  }
-}
-
-// Broadcast active clients
-function broadcastClients() {
+// ✅ Broadcast all active client locations
+function broadcastAll() {
   const now = Date.now();
 
-  for (const id in clients) {
-    if (now - clients[id].ts > CLIENT_TIMEOUT || clients[id].ws.readyState !== WebSocket.OPEN) {
-      delete clients[id];
+  // Remove inactive clients
+  for (const [ws, info] of clients) {
+    if (now - info.ts > CLIENT_TIMEOUT) {
+      clients.delete(ws);
     }
   }
 
-  const snapshot = JSON.stringify({
-    type: 'all',
-    users: Object.values(clients).map(c => ({
-      id: c.id,
-      name: c.name,
-      phone: c.phone,
-      device: c.device,
-      lat: c.lat,
-      lon: c.lon,
-      ts: c.ts
-    }))
-  });
+  const users = Array.from(clients.values());
+  const snapshot = JSON.stringify({ type: "all", users });
 
-  wss.clients.forEach(c => {
-    if (c.readyState === WebSocket.OPEN) c.send(snapshot);
+  // Send updated locations to all
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(snapshot);
+    }
   });
 }
-
-// Heartbeat ping every 10 seconds
-setInterval(() => {
-  wss.clients.forEach(ws => {
-    if (!ws.isAlive) return ws.terminate();
-    ws.isAlive = false;
-    ws.ping();
-  });
-}, 10000);
