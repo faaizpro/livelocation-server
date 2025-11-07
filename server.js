@@ -1,44 +1,49 @@
 const WebSocket = require("ws");
+const fs = require("fs");
+const path = require("path");
 
-// ✅ Server setup
+// ✅ Configuration
 const PORT = process.env.PORT || 10000;
-const wss = new WebSocket.Server({ port: PORT });
+const FILE_PATH = path.join(__dirname, "locations.json");
+const CLIENT_TIMEOUT = 30000; // 30 seconds
 
+// ✅ Start WebSocket Server
+const wss = new WebSocket.Server({ port: PORT });
 console.log(`✅ Live Location WebSocket Server running on port ${PORT}`);
 
-// Store clients with location data
-let clients = new Map(); // ws → { lat, lon, ts }
-const CLIENT_TIMEOUT = 30000; // remove client if no update in 30s
+// Active clients → ws => { lat, lon, ts }
+let clients = new Map();
 
-// ✅ Handle new connections
+// ✅ Handle new client connection
 wss.on("connection", (ws) => {
   console.log("🟢 Client connected");
 
-  // When a client sends a message
   ws.on("message", (msg) => {
     try {
       const data = JSON.parse(msg);
 
       if (typeof data.lat === "number" && typeof data.lon === "number") {
-        // Save latest location
+        // Save client's latest location
         clients.set(ws, { lat: data.lat, lon: data.lon, ts: Date.now() });
       }
 
+      // Update file and broadcast to all
       broadcastAll();
-    } catch (e) {
-      console.error("❌ Invalid message:", e.message);
+      saveToFile();
+    } catch (err) {
+      console.error("❌ Invalid message:", err.message);
     }
   });
 
-  // On close → remove client
   ws.on("close", () => {
     console.log("🔴 Client disconnected");
     clients.delete(ws);
     broadcastAll();
+    saveToFile();
   });
 });
 
-// ✅ Broadcast all active client locations
+// ✅ Broadcast active client locations to everyone
 function broadcastAll() {
   const now = Date.now();
 
@@ -52,10 +57,23 @@ function broadcastAll() {
   const users = Array.from(clients.values());
   const snapshot = JSON.stringify({ type: "all", users });
 
-  // Send updated locations to all
+  // Send live locations to all connected clients
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(snapshot);
     }
+  });
+}
+
+// ✅ Save current coordinates to a JSON file
+function saveToFile() {
+  const users = Array.from(clients.values()).map((c) => ({
+    lat: c.lat,
+    lon: c.lon,
+    ts: c.ts,
+  }));
+
+  fs.writeFile(FILE_PATH, JSON.stringify(users, null, 2), (err) => {
+    if (err) console.error("❌ Error saving file:", err);
   });
 }
