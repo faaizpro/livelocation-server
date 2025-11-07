@@ -1,6 +1,7 @@
 {
   "name": "livelocation-server",
   "version": "1.0.0",
+  "description": "Live location WebSocket server",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
